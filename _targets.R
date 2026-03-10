@@ -21,7 +21,8 @@ tar_option_set(
 		"here",
     "fs",
     # Basic packages
-    "dplyr",
+    "tidyverse",
+		"vroom",
     # Personal
 		"card"
 	),
@@ -37,20 +38,24 @@ tar_option_set(
 
 # Target list
 list(
+	# Data ----
+	# Paths
+	tar_file(data_dir, fs::path(fs::path_home(), "data")),
+	tar_file(genetics_dir, fs::path(data_dir, "genetics")),
 
-  # Data ----
-  # Paths
-  tar_file(data_dir, fs::path(fs::path_home(), "data")),
-  tar_file(genetics_dir, fs::path(data_dir, "genetics")),
+	# VEP annotations ----
 
+	# VEP files
+	tar_file(
+		uic_first_batch_file,
+		fs::path(genetics_dir, "uic_first_batch", "vep_annotations.csv")
+	),
+	tar_file(
+		uic_second_batch_file,
+		fs::path(genetics_dir, "uic_second_batch", "vep_annotations.csv")
+	),
 
-  # VEP annotations ----
-  # VEP files
-  tar_file(uic_first_batch_file, fs::path(genetics_dir, "uic_first_batch", "vep_annotations.csv")),
-  tar_file(uic_second_batch_file, fs::path(genetics_dir, "uic_second_batch", "vep_annotations.csv")),
-
-  # VEP data individually
-  tar_target(vep_first_batch_dat, read_in_vep_data(uic_first_batch_file)),
-  tar_target(vep_second_batch_dat, read_in_vep_data(uic_second_batch_file)),
-
+	# VEP data individually
+	tar_target(vep_first_batch_dat, read_in_vep_data(uic_first_batch_file)),
+	tar_target(vep_second_batch_dat, read_in_vep_data(uic_second_batch_file))
 )
