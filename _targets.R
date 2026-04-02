@@ -55,7 +55,18 @@ list(
 		fs::path(genetics_dir, "uic_second_batch", "vep_annotations.csv")
 	),
 
-	# VEP data individually
-	tar_target(vep_first_batch_dat, read_in_vep_data(uic_first_batch_file)),
-	tar_target(vep_second_batch_dat, read_in_vep_data(uic_second_batch_file))
+	# VEP data (branched)
+	tar_target(
+		vep_file,
+		c(uic_first_batch_file, uic_second_batch_file),
+		format = "file"
+	),
+
+	tar_target(
+		vep_batch_dat,
+		read_in_annotated_vep_data(vep_file),
+		pattern = map(vep_file)
+	),
+
+	tar_target(vep_dat, dplyr::bind_rows(vep_batch_dat, .id = "batch_id"))
 )

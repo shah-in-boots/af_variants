@@ -2,7 +2,7 @@
 # Should be in CSV format from reading them in from VCF files
 # Built from card::read_vep_data()
 # I/O = file/VEP data
-read_in_vep_data <- function(file_name) {
+read_in_annotated_vep_data <- function(file_name) {
   # Get number of lines to help with column typing
   n_lines <-
     vroom::vroom_lines(file_name) |>
