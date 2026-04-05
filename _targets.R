@@ -58,8 +58,7 @@ list(
 	# VEP data (branched)
 	tar_target(
 		vep_file,
-		c(uic_first_batch_file, uic_second_batch_file),
-		format = "file"
+		c(uic_first_batch_file, uic_second_batch_file)
 	),
 
 	tar_target(
@@ -68,5 +67,6 @@ list(
 		pattern = map(vep_file)
 	),
 
-	tar_target(vep_dat, dplyr::bind_rows(vep_batch_dat, .id = "batch_id"))
+	# Creates a single data file of high riskk annotations
+	tar_target(vep_dat, dplyr::bind_rows(vep_batch_dat))
 )
