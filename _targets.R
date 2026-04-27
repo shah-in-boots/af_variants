@@ -39,9 +39,18 @@ tar_option_set(
 # Target list
 list(
 	# Data ----
+
 	# Paths
 	tar_file(data_dir, fs::path(fs::path_home(), "data")),
 	tar_file(genetics_dir, fs::path(data_dir, "genetics")),
+	
+	# IDs ----
+
+	# ID reconciliation
+	tar_file(id_dir, fs::path(genetics_dir, "ids")),
+	tar_files(name = id_files, command = fs::dir_ls(id_dir)),
+
+	tar_target(ids, clean_id_files(id_files)),
 
 	# VEP annotations ----
 
