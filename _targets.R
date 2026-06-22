@@ -20,16 +20,19 @@ tar_option_set(
 		"crew",
 		"here",
     "fs",
+		"arrow",
     # Basic packages
     "tidyverse",
 		"vroom",
     # Personal
-		"card"
+		"card",
+		"EGM"
 	),
 	controller = crew_controller_local(
 		workers = 6,
 		seconds_idle = 3000
 	),
+	garbage_collection = TRUE,
 	workspace_on_error = TRUE,
 	storage = "worker",
 	retrieval = "worker"
@@ -41,15 +44,16 @@ list(
 	# Data ----
 
 	# Paths
-	tar_file(data_dir, fs::path(fs::path_home(), "data")),
-	tar_file(genetics_dir, fs::path(data_dir, "genetics")),
-	
-	# IDs ----
+	tar_file(data_dir, fs::path(fs::path_home(), "data", "af_variants")),
+	tar_file(genetics_dir, fs::path(data_dir, "genetic_data")),
+	tar_file(ecg_dir, fs::path(data_dir, "ecg_data")),
+	tar_file(wfdb_dir, fs::path(ecg_dir, "raw")),
+	tar_file(beat_dir, fs::path(ecg_dir, "beats")),
+	tar_file(id_dir, fs::path(data_dir, "id_data")),
 
-	# ID reconciliation
-	tar_file(id_dir, fs::path(genetics_dir, "ids")),
+	# ID reconciliation (including ECG data)
+	# Has a table of ECG information that is contained in the ecg_data/raw folder
 	tar_files(name = id_files, command = fs::dir_ls(id_dir)),
-
 	tar_target(ids, clean_id_files(id_files)),
 
 	# VEP annotations ----
@@ -66,16 +70,47 @@ list(
 
 	# VEP data (branched)
 	tar_target(
-		vep_file,
+		vep_files,
 		c(uic_first_batch_file, uic_second_batch_file)
 	),
 
+	# Creates a single data file of ALL annotations
+	# Can also filter down by high risk variants
 	tar_target(
 		vep_batch_dat,
-		read_in_annotated_vep_data(vep_file),
-		pattern = map(vep_file)
+		read_in_annotated_vep_data(vep_files),
+		pattern = map(vep_files)
+	),
+	tar_target(vep_dat, dplyr::bind_rows(vep_batch_dat)),
+	tar_target(variant_dat, filter_high_risk_variants(vep_dat)),
+
+	# TTN data
+	tar_target(ttn_all_dat, filter_by_gene(vep_dat, gene = "TTN")),
+	tar_target(ttn_var_dat, filter_high_risk_variants(ttn_all_dat)),
+
+	# ECG data ----
+
+	# ECG data paired to IDs
+	tar_target(ecg_ids, match_ecg_to_genetics(ids, ecg_dir)),
+
+	# Enumerate the WFDB records available in the raw directory (one per ECG)
+	tar_target(ecg_list, list_ecg_records(wfdb_dir)),
+
+	# Group records into evenly sized batches so the pipeline branches over a
+	# few hundred batches instead of ~15k individual records. `iteration =
+	# "list"` makes each branch receive one batch (a character vector).
+	tar_target(
+		ecg_batches,
+		batch_records(ecg_list, batch_size = 100L),
+		iteration = "list"
 	),
 
-	# Creates a single data file of high riskk annotations
-	tar_target(vep_dat, dplyr::bind_rows(vep_batch_dat))
+	# Window each ECG into standardized individual sinus beats, branched per
+	# batch. Each branch processes its batch of ECGs, writes their beats to
+	# beat_dir, and returns a manifest; targets row-binds the branches.
+	tar_target(
+		written_beats,
+		make_individual_beats(ecg_batches, wfdb_dir, beat_dir),
+		pattern = map(ecg_batches)
+	)
 )

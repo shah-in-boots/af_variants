@@ -1,0 +1,5 @@
+name|type|data|command|depend|seed|path|time|size|bytes|format|repository|iteration|parent|children|seconds|warnings|error
+clean_id_files|function|c5a04cae7f4d055b
+read_in_annotated_vep_data|function|a6131330a3a299ef
+data_dir|stem|2bbb9d22db799e53|5d2b4d9b5c38c1e9|2c530c1562a7fbd1|-145075625|/Users/asshah4/data|t20626.1637064487s|s241375769486b|241375769486|file|local|vector|||0.577||
+id_dir|stem||7792f7d46d9e04bd|c0b8199c02c563b9|1897638479|/Users/asshah4/data/id_data|t20626.1704157128s||0|file|local|vector|||||Error resolving output location: missing files: /Users/asshah4/data/id_data

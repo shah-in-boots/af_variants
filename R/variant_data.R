@@ -16,7 +16,7 @@ read_in_annotated_vep_data <- function(file_name) {
     ) |>
     select(
       # Identifiers
-      sample_id,
+      broad_id = sample_id,
       Location,
       SYMBOL,
       Gene,
@@ -39,11 +39,20 @@ read_in_annotated_vep_data <- function(file_name) {
       # Other helpful annotations
       MANE_SELECT, # MANE prefered to CANONICAL
       CANONICAL
-    )
+    ) |>
+    # Trim down to DNA ID
+    dplyr::mutate(broad_id = stringr::str_replace(broad_id, pattern = "CCDG_Broad_CVD_AF_Darbar_UIC_Cases-", replacement = "")) 
+
+  # Return
+  dat
+
+}
+
+filter_high_risk_variants <- function(vep_dat) {
 
   # Filter to canonical transcript to reduce per-transcript duplication
-  variant_dat <-
-    dat |>
+  dat <-
+    vep_dat |>
     filter(CANONICAL == "YES") |>
     filter(
       !is.na(LoF) |
@@ -57,9 +66,28 @@ read_in_annotated_vep_data <- function(file_name) {
         str_detect(PolyPhen, "damaging")
     ) |>
     filter(MAX_AF < 0.01) |>
-    filter(!str_detect(CLIN_SIG, "benign"))
-
+    filter(!str_detect(CLIN_SIG, "benign")) 
 
   # Return variant data
-  variant_dat
+  dat
+}
+
+
+filter_by_gene <- function(vep_dat, gene = "all") {
+
+  # Filter by gene
+  # Could be pre-filtered by high risk or full dataset
+  dat <-
+    vep_dat |>
+    # Now filter genes if specified. Default is "all" to keep all genes.
+    (\(.x) {
+      if (gene != "all") {
+        filter(.x, SYMBOL %in% gene)
+      } else {
+        .x
+      }
+    }
+    )()
+
+  dat
 }
