@@ -90,9 +90,6 @@ list(
 
 	# ECG data ----
 
-	# ECG data paired to IDs
-	tar_target(ecg_ids, match_ecg_to_genetics(ids, ecg_dir)),
-
 	# Enumerate the WFDB records available in the raw directory (one per ECG)
 	tar_target(ecg_list, list_ecg_records(wfdb_dir)),
 
@@ -109,8 +106,21 @@ list(
 	# batch. Each branch processes its batch of ECGs, writes their beats to
 	# beat_dir, and returns a manifest; targets row-binds the branches.
 	tar_target(
-		written_beats,
+		beat_paths,
 		make_individual_beats(ecg_batches, wfdb_dir, beat_dir),
 		pattern = map(ecg_batches)
+	),
+
+	# Match each ECG to the genetic data and de-identified numbers
+	tar_target(
+		ecg_ids,
+		match_ecg_to_genetics(ids, ecg_dir)
+	),
+
+	# One row per written beat, named and joined to its parent ECG metadata and
+	# the patient's genetic/ID information (genetics-matched beats only)
+	tar_target(
+		beat_table,
+		build_beat_table(beat_paths, ecg_ids)
 	)
 )
