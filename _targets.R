@@ -49,19 +49,20 @@ list(
 	# Data ----
 
 	# Data path
-	tar_file(data_dir, fs::path(fs::path_home(), "data", "af_variants")),
+	# These are all targets and not tracked files to save time
+	# Do not need to read each file
+	tar_target(data_dir, fs::path(fs::path_home(), "data", "af_variants")),
 
 	# Genetics folder
-	tar_file(genetics_dir, fs::path(data_dir, "genetic_data")),
-	
+	tar_target(genetics_dir, fs::path(data_dir, "genetic_data")),
 
 	# ECG datasets
-	tar_file(ecg_dir, fs::path(data_dir, "ecg_data")),
-	tar_file(wfdb_dir, fs::path(ecg_dir, "raw")),
-	tar_file(beat_dir, fs::path(ecg_dir, "beats")),
+	tar_target(ecg_dir, fs::path(data_dir, "ecg_data")),
+	tar_target(wfdb_dir, fs::path(ecg_dir, "raw")),
+	tar_target(beat_dir, fs::path(ecg_dir, "beats")),
 
-	# Where trained keras models are written
-	tar_file(model_dir, fs::path(data_dir, "models")),
+	# Trained keras models storage folder
+	tar_target(model_dir, fs::path(data_dir, "models")),
 
 	# Clinical and ID information folder
 	# ID reconciliation 
@@ -140,7 +141,6 @@ list(
 
 	# Modeling ----
 
-
 	# Case/control label per beat. Cases = carriers of a TTN variant matching the
 	# supplied criteria; controls = remainder. Pass `ttn_all_dat` (unfiltered) so
 	# the definition lives entirely in these arguments -- tune them to trade off
@@ -159,24 +159,6 @@ list(
 	tar_target(
 		beat_split,
 		assign_split(labeled_beats)
-	),
-
-	# Fit the tiny CNN; returns the path to the saved .keras model (file target)
-	tar_target(
-		fit_cnn,
-		fit_model(beat_split, model_name = "cnn_small", out_dir = model_dir),
-		format = "file"
-	),
-
-	# Beat-level out-of-sample predictions on the held-out patients
-	tar_target(
-		pred_cnn,
-		predict_beats(fit_cnn, beat_split)
-	),
-
-	# Beat-level metrics (ROC-AUC, PR-AUC)
-	tar_target(
-		metrics_cnn,
-		evaluate_beats(pred_cnn)
 	)
+
 )
