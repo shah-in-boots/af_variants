@@ -159,6 +159,56 @@ list(
 	tar_target(
 		beat_split,
 		assign_split(labeled_beats)
+	),
+
+	# Models ----
+	#
+	# Each target below trains one architecture from R/models.R and writes a
+	# single self-contained `<name>.keras` file into `model_dir`, named after the
+	# architecture + hyperparameters. The knobs live in two lists:
+	#   - `architecture` picks the builder (cnn / resnet / cnn_lstm) and
+	#     `hp` overrides that builder's internal parameters,
+	#   - `fit` controls training (epochs, batch size, validation slice).
+	# To explore a variant, copy a target, tweak its `hp`/`fit`, and rename it --
+	# targets only reruns the targets whose arguments changed, the model name
+	# changes with them, and old model files stay on disk. `format = "file"`
+	# tracks the written `.keras` so deleting it triggers a rebuild.
+
+	tar_target(
+		cnn_model,
+		train_ecg_model(
+			beat_split, model_dir,
+			architecture = "cnn",
+			hp = list(filters = 32, kernel_size = 7, n_blocks = 3,
+								dense_units = 64, dropout = 0.3, learning_rate = 1e-3),
+			fit = list(epochs = 30, batch_size = 64, validation_split = 0.15)
+		),
+		format = "file"
+	),
+
+	tar_target(
+		resnet_model,
+		train_ecg_model(
+			beat_split, model_dir,
+			architecture = "resnet",
+			hp = list(filters = 64, kernel_size = 7, n_blocks = 4,
+								dense_units = 64, dropout = 0.3, learning_rate = 1e-3),
+			fit = list(epochs = 30, batch_size = 64, validation_split = 0.15)
+		),
+		format = "file"
+	),
+
+	tar_target(
+		cnn_lstm_model,
+		train_ecg_model(
+			beat_split, model_dir,
+			architecture = "cnn_lstm",
+			hp = list(filters = 32, kernel_size = 7, n_conv_blocks = 2,
+								lstm_units = 64, dense_units = 32, dropout = 0.3,
+								learning_rate = 1e-3),
+			fit = list(epochs = 30, batch_size = 64, validation_split = 0.15)
+		),
+		format = "file"
 	)
 
 )
