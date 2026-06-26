@@ -56,7 +56,7 @@ filter_high_risk_variants <- function(vep_dat) {
     filter(CANONICAL == "YES") |>
     filter(
       !is.na(LoF) |
-        IMPACT == "HIGH|MODERATE" |
+        IMPACT %in% c("HIGH", "MODERATE") |
         str_detect(CLIN_SIG, "pathogenic") |
         str_detect(
           Consequence,
@@ -65,8 +65,12 @@ filter_high_risk_variants <- function(vep_dat) {
         str_detect(SIFT, "deleterious") |
         str_detect(PolyPhen, "damaging")
     ) |>
-    filter(MAX_AF < 0.01) |>
-    filter(!str_detect(CLIN_SIG, "benign")) 
+    # Keep rare variants; NA MAX_AF means absent from population databases
+    # (i.e. ultra-rare), which we want to keep, not drop.
+    filter(is.na(MAX_AF) | MAX_AF < 0.01) |>
+    # Drop only variants explicitly flagged benign; keep unannotated (NA) ones.
+    # str_detect(NA, ...) is NA and would otherwise be dropped, so coalesce to "".
+    filter(!str_detect(coalesce(CLIN_SIG, ""), "benign"))
 
   # Return variant data
   dat

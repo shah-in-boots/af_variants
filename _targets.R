@@ -148,67 +148,113 @@ list(
 	# with beats; the default below gives ~46 case patients).
 	tar_target(
 		labeled_beats,
-		assign_case_control(
-			beat_table, ttn_all_dat,
-			impact = c("HIGH", "MODERATE"), max_af = 0.01, canonical = TRUE
+		label_case_control_status(
+			beat_table, 
+			variant_dat = ttn_var_dat,
+			'IMPACT == "HIGH"'
 		)
 	),
 
 	# Beat-level train/test split (v1 treats beats as independent; no patient
 	# grouping yet)
 	tar_target(
-		beat_split,
-		assign_split(labeled_beats)
+		split_dat,
+		make_split_data(labeled_beats)
 	),
 
 	# Models ----
 	#
-	# Each target below trains one architecture from R/models.R and writes a
-	# single self-contained `<name>.keras` file into `model_dir`, named after the
-	# architecture + hyperparameters. The knobs live in two lists:
-	#   - `architecture` picks the builder (cnn / resnet / cnn_lstm) and
-	#     `hp` overrides that builder's internal parameters,
-	#   - `fit` controls training (epochs, batch size, validation slice).
-	# To explore a variant, copy a target, tweak its `hp`/`fit`, and rename it --
-	# targets only reruns the targets whose arguments changed, the model name
-	# changes with them, and old model files stay on disk. `format = "file"`
-	# tracks the written `.keras` so deleting it triggers a rebuild.
-
+	# Every model to train is one entry in the list below -- edit its
+	# `architecture` / `hp` / `fit` right here in the pipeline. We dynamically
+	# branch over the list, so each entry trains as its own branch (in parallel
+	# across the crew workers) and writes a self-contained `<name>.keras` (named
+	# after its full spec) into `model_dir`. train_ecg_model() returns early when
+	# that `.keras` already exists, so `tar_make()` only trains entries you have
+	# added or whose hyperparameters you changed -- add a model, rerun, and just
+	# the new one builds. To force a retrain, delete its file from `model_dir`.
 	tar_target(
-		cnn_model,
-		train_ecg_model(
-			beat_split, model_dir,
-			architecture = "cnn",
-			hp = list(filters = 32, kernel_size = 7, n_blocks = 3,
-								dense_units = 64, dropout = 0.3, learning_rate = 1e-3),
-			fit = list(epochs = 30, batch_size = 64, validation_split = 0.15)
+		model_specs,
+		list(
+			list(
+				architecture = "cnn",
+				hp = list(
+					filters = 32, 
+					kernel_size = 7, 
+					n_blocks = 3,
+					dense_units = 64, 
+					dropout = 0.3, 
+					learning_rate = 1e-3
+				),
+				fit = list(
+					epochs = 5, 
+					batch_size = 128, 
+					validation_split = 0.15
+				)
+			),
+			list(
+				architecture = "resnet",
+				hp = list(
+					filters = 32, 
+					kernel_size = 7, 
+					n_blocks = 2,
+					dense_units = 64, 
+					dropout = 0.3, 
+					learning_rate = 1e-3
+				),
+				fit = list(
+					epochs = 5, 
+					batch_size = 125, 
+					validation_split = 0.15
+				)
+			),
+			list(
+				architecture = "cnn_lstm",
+				hp = list(
+					filters = 32, 
+					kernel_size = 7, 
+					n_conv_blocks = 2,
+					lstm_units = 64, 
+					dense_units = 32, 
+					dropout = 0.3,
+					learning_rate = 1e-3
+				),
+				fit = list(
+					epochs = 5, 
+					batch_size = 128, 
+					validation_split = 0.15
+				)
+			),
+			list(
+				architecture = "tcn",
+				hp = list(
+					filters = 32,
+					kernel_size = 7,
+					dilations = c(1, 2, 4, 8, 16, 32),
+					dense_units = 64,
+					dropout = 0.3,
+					learning_rate = 1e-3
+				),
+				fit = list(
+					epochs = 5,
+					batch_size = 128,
+					validation_split = 0.15
+				)
+			)
 		),
-		format = "file"
+		iteration = "list"
 	),
 
 	tar_target(
-		resnet_model,
+		models,
 		train_ecg_model(
-			beat_split, model_dir,
-			architecture = "resnet",
-			hp = list(filters = 64, kernel_size = 7, n_blocks = 4,
-								dense_units = 64, dropout = 0.3, learning_rate = 1e-3),
-			fit = list(epochs = 30, batch_size = 64, validation_split = 0.15)
+			split_dat,
+			model_dir,
+			architecture = model_specs$architecture,
+			hp = model_specs$hp,
+			fit = model_specs$fit
 		),
+		pattern = map(model_specs),
 		format = "file"
 	),
-
-	tar_target(
-		cnn_lstm_model,
-		train_ecg_model(
-			beat_split, model_dir,
-			architecture = "cnn_lstm",
-			hp = list(filters = 32, kernel_size = 7, n_conv_blocks = 2,
-								lstm_units = 64, dense_units = 32, dropout = 0.3,
-								learning_rate = 1e-3),
-			fit = list(epochs = 30, batch_size = 64, validation_split = 0.15)
-		),
-		format = "file"
-	)
 
 )
