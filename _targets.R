@@ -64,6 +64,9 @@ list(
 	# Trained keras models storage folder
 	tar_target(model_dir, fs::path(data_dir, "models")),
 
+	# Where the evaluation phase writes the browsable metrics table
+	tar_target(metrics_dir, fs::path(data_dir, "metrics")),
+
 	# Clinical and ID information folder
 	# ID reconciliation 
 	# Has a table of ECG information that is contained in the ecg_data/raw folder
@@ -172,6 +175,10 @@ list(
 	# that `.keras` already exists, so `tar_make()` only trains entries you have
 	# added or whose hyperparameters you changed -- add a model, rerun, and just
 	# the new one builds. To force a retrain, delete its file from `model_dir`.
+
+	tar_target(model_epochs, 30L),
+	tar_target(model_batch_size, 128L),
+
 	tar_target(
 		model_specs,
 		list(
@@ -180,14 +187,14 @@ list(
 				hp = list(
 					filters = 32, 
 					kernel_size = 7, 
-					n_blocks = 3,
+					n_blocks = 7,
 					dense_units = 64, 
 					dropout = 0.3, 
 					learning_rate = 1e-3
 				),
 				fit = list(
-					epochs = 5, 
-					batch_size = 128, 
+					epochs = model_epochs, 
+					batch_size = model_batch_size, 
 					validation_split = 0.15
 				)
 			),
@@ -196,31 +203,31 @@ list(
 				hp = list(
 					filters = 32, 
 					kernel_size = 7, 
-					n_blocks = 2,
+					n_blocks = 7,
 					dense_units = 64, 
 					dropout = 0.3, 
 					learning_rate = 1e-3
 				),
 				fit = list(
-					epochs = 5, 
-					batch_size = 125, 
+					epochs = model_epochs, 
+					batch_size = model_batch_size, 
 					validation_split = 0.15
 				)
 			),
 			list(
 				architecture = "cnn_lstm",
 				hp = list(
-					filters = 32, 
+					filters = 64, 
 					kernel_size = 7, 
 					n_conv_blocks = 2,
 					lstm_units = 64, 
-					dense_units = 32, 
+					dense_units = 64, 
 					dropout = 0.3,
 					learning_rate = 1e-3
 				),
 				fit = list(
-					epochs = 5, 
-					batch_size = 128, 
+					epochs = model_epochs, 
+					batch_size = model_batch_size, 
 					validation_split = 0.15
 				)
 			),
@@ -229,14 +236,14 @@ list(
 				hp = list(
 					filters = 32,
 					kernel_size = 7,
-					dilations = c(1, 2, 4, 8, 16, 32),
+					dilations = c(1, 2, 4, 8, 16, 32, 64),
 					dense_units = 64,
 					dropout = 0.3,
 					learning_rate = 1e-3
 				),
 				fit = list(
-					epochs = 5,
-					batch_size = 128,
+					epochs = model_epochs,
+					batch_size = model_batch_size,
 					validation_split = 0.15
 				)
 			)
@@ -256,5 +263,48 @@ list(
 		pattern = map(model_specs),
 		format = "file"
 	),
+
+	# Evaluation ----
+	#
+	# Enumerate EVERY `.keras` in the model directory -- not just the ones in
+	# `model_specs` -- so the table covers older runs and hand-dropped models too,
+	# matching "evaluate the models stored in the model directory". Referencing
+	# `models` makes this re-scan after training, so a model trained this run is
+	# discovered this run. tar_files tracks each file by content hash, so eval
+	# below only re-runs for files that actually changed.
+	tar_files(
+		model_files,
+		{
+			models # depend on training so freshly trained models are picked up now
+			as.character(fs::dir_ls(model_dir, glob = "*.keras"))
+		}
+	),
+
+	# Score every model on the held-out TEST split. This phase only ever LOADS
+	# `.keras` files and predicts -- it never retrains. One branch per model file
+	# (in parallel across the crew workers); targets caches each branch, so adding
+	# a model just grows the table by a row. score_model() streams test beats
+	# through the model in chunks, so peak memory is one (chunk, 500, 12) array no
+	# matter how large the test set is.
+	tar_target(
+		model_scores,
+		score_model(model_files, split_dat),
+		pattern = map(model_files)
+	),
+
+	# The growing table of model statistics -- one row per model, best ROC-AUC
+	# first. Inspect with `tar_read(model_metrics)`.
+	tar_target(
+		model_metrics,
+		dplyr::arrange(model_scores, dplyr::desc(roc_auc))
+	),
+
+	# A browsable CSV copy of the table (for spreadsheets / read_csv outside the
+	# pipeline). The in-pipeline `model_metrics` target above is the source of
+	# truth; this is just a convenience export.
+	tar_file(
+		model_metrics_file,
+		write_metrics_table(model_metrics, metrics_dir)
+	)
 
 )
