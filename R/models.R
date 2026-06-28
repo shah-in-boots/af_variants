@@ -30,11 +30,36 @@
 # TRUE` and accuracy thresholds at 0 (logit 0 == probability 0.5). Keeping the
 # output a logit makes the Grad-CAM / integrated-gradient maps in R/activation.R
 # cleaner.
-compile_ecg_model <- function(model, learning_rate = 1e-3) {
+compile_ecg_model <- function(
+  model,
+  learning_rate = 1e-3,
+  loss = "bce",
+  weight_decay = 0
+) {
+  # Imbalance-handling loss. "bce" relies on the class weights passed at fit time
+  # (R/train.R); "focal" down-weights easy examples so the rare cases dominate
+  # the gradient. Both keep `from_logits = TRUE` since the head emits a raw logit.
+  loss_fn <- switch(
+    loss,
+    bce = keras3::loss_binary_crossentropy(from_logits = TRUE),
+    focal = keras3::loss_binary_focal_crossentropy(gamma = 2, from_logits = TRUE),
+    stop("Unknown loss '", loss, "'. Use \"bce\" or \"focal\".")
+  )
+
+  # AdamW (decoupled weight decay) when weight_decay > 0, otherwise plain Adam.
+  optimizer <- if (weight_decay > 0) {
+    keras3::optimizer_adam_w(
+      learning_rate = learning_rate,
+      weight_decay = weight_decay
+    )
+  } else {
+    keras3::optimizer_adam(learning_rate = learning_rate)
+  }
+
   model |>
     keras3::compile(
-      optimizer = keras3::optimizer_adam(learning_rate = learning_rate),
-      loss = keras3::loss_binary_crossentropy(from_logits = TRUE),
+      optimizer = optimizer,
+      loss = loss_fn,
       metrics = list(
         keras3::metric_binary_accuracy(name = "accuracy", threshold = 0),
         keras3::metric_auc(name = "auc", from_logits = TRUE)
@@ -58,7 +83,9 @@ build_ecg_cnn <- function(
   pool_size = 2,
   dense_units = 64,
   dropout = 0.3,
-  learning_rate = 1e-3
+  learning_rate = 1e-3,
+  loss = "bce",
+  weight_decay = 0
 ) {
   model <- keras3::keras_model_sequential(input_shape = input_shape)
 
@@ -86,7 +113,7 @@ build_ecg_cnn <- function(
     keras3::layer_dropout(rate = dropout) |>
     keras3::layer_dense(units = 1, name = "logit")
 
-  compile_ecg_model(model, learning_rate)
+  compile_ecg_model(model, learning_rate, loss = loss, weight_decay = weight_decay)
 }
 
 
@@ -148,7 +175,9 @@ build_ecg_resnet <- function(
   n_blocks = 4,
   dense_units = 64,
   dropout = 0.3,
-  learning_rate = 1e-3
+  learning_rate = 1e-3,
+  loss = "bce",
+  weight_decay = 0
 ) {
   inputs <- keras3::layer_input(shape = input_shape)
 
@@ -183,7 +212,7 @@ build_ecg_resnet <- function(
     keras3::layer_dense(units = 1, name = "logit")
 
   model <- keras3::keras_model(inputs, outputs)
-  compile_ecg_model(model, learning_rate)
+  compile_ecg_model(model, learning_rate, loss = loss, weight_decay = weight_decay)
 }
 
 
@@ -203,7 +232,9 @@ build_ecg_cnn_lstm <- function(
   lstm_units = 64,
   dense_units = 32,
   dropout = 0.3,
-  learning_rate = 1e-3
+  learning_rate = 1e-3,
+  loss = "bce",
+  weight_decay = 0
 ) {
   model <- keras3::keras_model_sequential(input_shape = input_shape)
 
@@ -225,7 +256,7 @@ build_ecg_cnn_lstm <- function(
     keras3::layer_dropout(rate = dropout) |>
     keras3::layer_dense(units = 1, name = "logit")
 
-  compile_ecg_model(model, learning_rate)
+  compile_ecg_model(model, learning_rate, loss = loss, weight_decay = weight_decay)
 }
 
 # TCN (dilated causal convolutions) ----
@@ -276,7 +307,9 @@ build_ecg_tcn <- function(
   dilations = c(1, 2, 4, 8, 16, 32),
   dense_units = 64,
   dropout = 0.3,
-  learning_rate = 1e-3
+  learning_rate = 1e-3,
+  loss = "bce",
+  weight_decay = 0
 ) {
   inputs <- keras3::layer_input(shape = input_shape)
 
@@ -309,7 +342,7 @@ build_ecg_tcn <- function(
     keras3::layer_dense(units = 1, name = "logit")
 
   model <- keras3::keras_model(inputs, outputs)
-  compile_ecg_model(model, learning_rate)
+  compile_ecg_model(model, learning_rate, loss = loss, weight_decay = weight_decay)
 }
 
 

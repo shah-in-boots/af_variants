@@ -81,6 +81,9 @@ score_model <- function(
 
   test_tbl <- dplyr::filter(split_dat, split == "test")
   model_name <- fs::path_ext_remove(fs::path_file(model_path))
+  # Models live in model_dir/<data_id>/<name>.keras, so the parent folder names
+  # the dataset version -- carry it so metrics join unambiguously to the log.
+  data_id <- fs::path_file(fs::path_dir(model_path))
 
   # compile = FALSE: we only predict, so skip rebuilding the optimizer.
   model <- keras3::load_model(model_path, compile = FALSE)
@@ -118,6 +121,7 @@ score_model <- function(
 
   tibble::tibble(
     model = model_name,
+    data_id = data_id,
     arch = parse_architecture(model_name),
     n_beats = n_beats,
     n_case = n_case,

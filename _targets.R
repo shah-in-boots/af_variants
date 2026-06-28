@@ -29,12 +29,13 @@ tar_option_set(
 		"yardstick",
 		"keras3",
 		"tensorflow",
+		"jsonlite",
     # Personal
 		"card",
 		"EGM"
 	),
 	controller = crew_controller_local(
-		workers = 6,
+		workers = 3,
 		seconds_idle = 3000
 	),
 	garbage_collection = TRUE,
@@ -51,7 +52,7 @@ list(
 	# Data path
 	# These are all targets and not tracked files to save time
 	# Do not need to read each file
-	tar_target(data_dir, fs::path(fs::path_home(), "data", "af_variants")),
+	tar_target(data_dir, fs::path(fs::path_home(), "Drive", "data", "af_variants")),
 
 	# Genetics folder
 	tar_target(genetics_dir, fs::path(data_dir, "genetic_data")),
@@ -144,22 +145,28 @@ list(
 
 	# Modeling ----
 
+	# The case/control definition, as a single editable string. Held in its own
+	# target so it feeds BOTH the labeling and the model cards -- so every model's
+	# provenance records exactly which definition produced its labels (and changing
+	# it re-runs labeling -> a new data_id -> retrains, rather than silently
+	# reusing models trained on the old labels).
+	tar_target(case_definition, 'IMPACT %in% c("HIGH", "MODERATE")'),
+
 	# Case/control label per beat. Cases = carriers of a TTN variant matching the
-	# supplied criteria; controls = remainder. Pass `ttn_all_dat` (unfiltered) so
-	# the definition lives entirely in these arguments -- tune them to trade off
-	# case count vs. stringency (e.g. lof=TRUE is strictest but yields ~1 case
-	# with beats; the default below gives ~46 case patients).
+	# definition; controls = remainder. Tune `case_definition` to trade off case
+	# count vs. stringency (e.g. lof=TRUE is strictest but yields ~1 case with
+	# beats; the default gives ~46 case patients).
 	tar_target(
 		labeled_beats,
 		label_case_control_status(
-			beat_table, 
+			beat_table,
 			variant_dat = ttn_var_dat,
-			'IMPACT == "HIGH"'
+			case_definition
 		)
 	),
 
-	# Beat-level train/test split (v1 treats beats as independent; no patient
-	# grouping yet)
+	# Beat-level train/val/test split, stratified on label only (patients may
+	# appear in more than one set -- see R/splits.R).
 	tar_target(
 		split_dat,
 		make_split_data(labeled_beats)
@@ -179,75 +186,69 @@ list(
 	tar_target(model_epochs, 30L),
 	tar_target(model_batch_size, 128L),
 
+	# The batch is generated from one hyperparameter grid per architecture: each
+	# row of a grid is one model, and listing several values for a column sweeps
+	# their combinations (tidyr::expand_grid = Cartesian product). grid_to_specs()
+	# (R/specs.R) turns each row into a list(architecture, hp, fit); we concatenate
+	# the per-architecture lists so each keeps only its own knobs. Each spec trains
+	# as its own branch (parallel across crew workers) and is skipped if already
+	# trained, so widening a grid only builds the new rows.
+	#
+	# Count the rows before a long run: the grid below is cnn(2) + resnet(2x2) +
+	# tcn(1) = 7 models. Capacity is kept small and regularized (shallow, dropout
+	# 0.4, AdamW weight decay, lr 3e-4) because there are only ~46 case patients,
+	# so the failure mode is overfitting. The two resnet losses are a clean
+	# bce-vs-focal test (class weights apply to both, so only the loss shape
+	# changes). cnn_lstm is left out -- its builder stays in R/models.R but it
+	# can't produce the activation maps this project needs. To cap a wide sweep,
+	# wrap the result in head(..., n).
 	tar_target(
 		model_specs,
-		list(
-			list(
+		{
+			fit <- list(epochs = model_epochs, batch_size = model_batch_size)
+
+			cnn <- tidyr::expand_grid(
 				architecture = "cnn",
-				hp = list(
-					filters = 32, 
-					kernel_size = 7, 
-					n_blocks = 7,
-					dense_units = 64, 
-					dropout = 0.3, 
-					learning_rate = 1e-3
-				),
-				fit = list(
-					epochs = model_epochs, 
-					batch_size = model_batch_size, 
-					validation_split = 0.15
-				)
-			),
-			list(
-				architecture = "resnet",
-				hp = list(
-					filters = 32, 
-					kernel_size = 7, 
-					n_blocks = 7,
-					dense_units = 64, 
-					dropout = 0.3, 
-					learning_rate = 1e-3
-				),
-				fit = list(
-					epochs = model_epochs, 
-					batch_size = model_batch_size, 
-					validation_split = 0.15
-				)
-			),
-			list(
-				architecture = "cnn_lstm",
-				hp = list(
-					filters = 64, 
-					kernel_size = 7, 
-					n_conv_blocks = 2,
-					lstm_units = 64, 
-					dense_units = 64, 
-					dropout = 0.3,
-					learning_rate = 1e-3
-				),
-				fit = list(
-					epochs = model_epochs, 
-					batch_size = model_batch_size, 
-					validation_split = 0.15
-				)
-			),
-			list(
-				architecture = "tcn",
-				hp = list(
-					filters = 32,
-					kernel_size = 7,
-					dilations = c(1, 2, 4, 8, 16, 32, 64),
-					dense_units = 64,
-					dropout = 0.3,
-					learning_rate = 1e-3
-				),
-				fit = list(
-					epochs = model_epochs,
-					batch_size = model_batch_size,
-					validation_split = 0.15
-				)
+				filters = 32L,
+				kernel_size = 7L,
+				n_blocks = c(3L, 4L),
+				dense_units = 64L,
+				dropout = 0.4,
+				learning_rate = 3e-4,
+				loss = "bce",
+				weight_decay = 1e-4
 			)
-		),
+
+			resnet <- tidyr::expand_grid(
+				architecture = "resnet",
+				filters = 32L,
+				kernel_size = 7L,
+				n_blocks = c(4L, 6L),
+				dense_units = 64L,
+				dropout = 0.4,
+				learning_rate = 3e-4,
+				loss = c("bce", "focal"),
+				weight_decay = 1e-4
+			)
+
+			tcn <- tidyr::expand_grid(
+				architecture = "tcn",
+				filters = 32L,
+				kernel_size = 7L,
+				dilations = list(c(1L, 2L, 4L, 8L, 16L, 32L, 64L)),
+				dense_units = 64L,
+				dropout = 0.4,
+				learning_rate = 3e-4,
+				loss = "focal",
+				weight_decay = 1e-4
+			)
+
+			c(
+				grid_to_specs(cnn, fit),
+				grid_to_specs(resnet, fit),
+				grid_to_specs(tcn, fit)
+			)
+		},
 		iteration = "list"
 	),
 
@@ -258,7 +259,8 @@ list(
 			model_dir,
 			architecture = model_specs$architecture,
 			hp = model_specs$hp,
-			fit = model_specs$fit
+			fit = model_specs$fit,
+			case_definition = case_definition
 		),
 		pattern = map(model_specs),
 		format = "file"
@@ -276,7 +278,8 @@ list(
 		model_files,
 		{
 			models # depend on training so freshly trained models are picked up now
-			as.character(fs::dir_ls(model_dir, glob = "*.keras"))
+			# recurse: models live in per-dataset subfolders (model_dir/<data_id>/).
+			as.character(fs::dir_ls(model_dir, glob = "*.keras", recurse = TRUE))
 		}
 	),
 
@@ -305,6 +308,49 @@ list(
 	tar_file(
 		model_metrics_file,
 		write_metrics_table(model_metrics, metrics_dir)
+	),
+
+	# Model log / registry ----
+	#
+	# Every trained model wrote a sidecar `<name>.json` card next to its `.keras`
+	# (see R/train.R / R/registry.R) recording its full spec + the dataset it was
+	# trained on. Enumerate every card (recurse: cards live in the per-dataset
+	# subfolders) and read them into one tidy log -- one row per model ever
+	# trained, regardless of whether it has been scored yet. Depend on `models` so
+	# cards written this run are picked up now; tar_files tracks each card by
+	# content hash, so a card only re-reads when it changes.
+	tar_files(
+		model_card_files,
+		{
+			models
+			as.character(fs::dir_ls(model_dir, glob = "*.json", recurse = TRUE))
+		}
+	),
+	tar_target(
+		model_log,
+		read_model_card(model_card_files),
+		pattern = map(model_card_files)
+	),
+
+	# Headline comparison table: the scored metrics enriched with each model's full
+	# provenance (hyperparameters, fit settings, case definition, train/val/test
+	# beat & patient counts). Joined on (model, data_id) so models that share a
+	# name across dataset versions never collide. Inspect with
+	# `tar_read(model_report)`.
+	tar_target(
+		model_report,
+		dplyr::left_join(model_metrics, model_log, by = c("model", "data_id")) |>
+			dplyr::arrange(dplyr::desc(roc_auc))
+	),
+
+	# Browsable CSV copies of the log and the comparison table.
+	tar_file(
+		model_log_file,
+		write_table_csv(model_log, metrics_dir, "model_log")
+	),
+	tar_file(
+		model_report_file,
+		write_table_csv(model_report, metrics_dir, "model_report")
 	)
 
 )

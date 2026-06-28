@@ -32,9 +32,9 @@
 label_case_control_status <- function(
   beat_table,
   variant_dat,
-  ...
+  case_definition
 ) {
-  filters <- c(...) # character vector of filter expressions (may be empty)
+  filters <- c(case_definition) # character vector of filter expressions (may be empty)
 
   # parse_exprs() returns an expression, splitting on new lines
   # We place the new lines to split the quoted dot argument
